@@ -1,0 +1,30 @@
+.piano-panel {
+  overflow: hidden;
+}
+
+.piano-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 18px 0 16px;
+}
+
+#pianoCanvas {
+  min-height: 300px;
+  touch-action: none;
+  cursor: grab;
+}
+
+#pianoCanvas.dragging {
+  cursor: grabbing;
+}
+
+@media (max-width: 640px) {
+  .piano-actions {
+    grid-template-columns: 1fr;
+  }
+
+  #pianoCanvas {
+    min-height: 360px;
+  }
+}
