@@ -4,6 +4,9 @@
     analyzeBtn: document.getElementById('analyzePianoBtn'),
     applyBtn: document.getElementById('applyPianoBtn'),
     clearBtn: document.getElementById('clearPianoBtn'),
+    transposeAllDownBtn: document.getElementById('transposeAllDownBtn'),
+    transposeAllUpBtn: document.getElementById('transposeAllUpBtn'),
+    groupMoveToggle: document.getElementById('groupMoveToggle'),
     info: document.getElementById('selectedClipInfo'),
     retuneMessage: document.getElementById('retuneMessage'),
     retunedAudio: document.getElementById('retunedAudio'),
@@ -23,6 +26,9 @@
     clips: [],
     selectedIndex: -1,
     dragging: false,
+    groupMove: false,
+    dragStartSelectedTarget: null,
+    dragStartTargets: [],
     duration: 1,
     minMidi: 48,
     maxMidi: 72,
@@ -40,6 +46,9 @@
   els.analyzeBtn.addEventListener('click', analyzePianoRoll);
   els.applyBtn.addEventListener('click', applyPianoRoll);
   els.clearBtn.addEventListener('click', () => resetPianoRoll('Blocks cleared. Tap Analyze Piano Roll to rebuild them.'));
+  els.transposeAllDownBtn.addEventListener('click', () => transposeAllBlocks(-1));
+  els.transposeAllUpBtn.addEventListener('click', () => transposeAllBlocks(1));
+  els.groupMoveToggle.addEventListener('click', toggleGroupMove);
   els.canvas.addEventListener('pointerdown', handlePointerDown);
   els.canvas.addEventListener('pointermove', handlePointerMove);
   els.canvas.addEventListener('pointerup', handlePointerUp);
@@ -50,15 +59,25 @@
   drawPianoRoll();
 
   function updatePianoButtons() {
-    els.analyzeBtn.disabled = !retuneInput;
-    els.applyBtn.disabled = !retuneInput || state.clips.length === 0;
-    els.clearBtn.disabled = state.clips.length === 0;
+    const hasInput = Boolean(retuneInput);
+    const hasClips = state.clips.length > 0;
+    els.analyzeBtn.disabled = !hasInput;
+    els.applyBtn.disabled = !hasInput || !hasClips;
+    els.clearBtn.disabled = !hasClips;
+    els.transposeAllDownBtn.disabled = !hasClips;
+    els.transposeAllUpBtn.disabled = !hasClips;
+    els.groupMoveToggle.disabled = !hasClips;
+    els.groupMoveToggle.setAttribute('aria-pressed', state.groupMove ? 'true' : 'false');
+    els.groupMoveToggle.textContent = `Move All Together: ${state.groupMove ? 'On' : 'Off'}`;
+    els.canvas.classList.toggle('group-moving', state.groupMove && hasClips);
   }
 
   function resetPianoRoll(message) {
     state.clips = [];
     state.selectedIndex = -1;
     state.dragging = false;
+    state.dragStartSelectedTarget = null;
+    state.dragStartTargets = [];
     state.pitchFrames = [];
     state.duration = retuneInput ? Math.max(1, retuneInput.samples.length / retuneInput.sampleRate) : 1;
     state.minMidi = 48;
@@ -74,6 +93,9 @@
     els.analyzeBtn.disabled = true;
     els.applyBtn.disabled = true;
     els.clearBtn.disabled = true;
+    els.transposeAllDownBtn.disabled = true;
+    els.transposeAllUpBtn.disabled = true;
+    els.groupMoveToggle.disabled = true;
     setStatus('analyzing', 'working');
     els.info.textContent = 'Analyzing vocal into pitch blocks...';
 
@@ -129,7 +151,7 @@
     }
 
     const selected = state.clips[state.selectedIndex];
-    els.info.textContent = `${state.clips.length} blocks found. Drag blocks up/down to place snippets on notes. Selected: ${clipLabel(selected)}.`;
+    els.info.textContent = `${state.clips.length} blocks found. Drag one block, or turn on Move All Together to transpose the whole phrase. Selected: ${clipLabel(selected)}.`;
     setStatus('piano ready', 'live');
   }
 
@@ -211,6 +233,9 @@
     els.applyBtn.disabled = true;
     els.analyzeBtn.disabled = true;
     els.clearBtn.disabled = true;
+    els.transposeAllDownBtn.disabled = true;
+    els.transposeAllUpBtn.disabled = true;
+    els.groupMoveToggle.disabled = true;
     setStatus('piano retune', 'working');
     els.info.textContent = 'Applying piano roll retune...';
 
@@ -302,6 +327,30 @@
     return { samples: output, map };
   }
 
+  function toggleGroupMove() {
+    if (!state.clips.length) return;
+    state.groupMove = !state.groupMove;
+    updatePianoButtons();
+    drawPianoRoll();
+    els.info.textContent = state.groupMove
+      ? 'Move All Together is on. Drag any block to transpose every block by the same interval.'
+      : 'Move All Together is off. Dragging edits only the selected block.';
+  }
+
+  function transposeAllBlocks(delta) {
+    if (!state.clips.length) return;
+    const boundedDelta = clampGroupDelta(delta, state.clips.map((clip) => clip.targetMidi));
+    if (boundedDelta === 0) {
+      els.info.textContent = 'Could not move all blocks farther without pushing one outside the visible piano range.';
+      return;
+    }
+
+    for (const clip of state.clips) clip.targetMidi += boundedDelta;
+    fitMidiRangeAroundTargets();
+    drawPianoRoll();
+    els.info.textContent = `Moved every block ${boundedDelta > 0 ? 'up' : 'down'} ${Math.abs(boundedDelta)} semitone${Math.abs(boundedDelta) === 1 ? '' : 's'} while keeping the melody shape.`;
+  }
+
   function handlePointerDown(event) {
     if (!state.clips.length) return;
     const point = canvasPoint(event);
@@ -310,6 +359,8 @@
 
     state.selectedIndex = index;
     state.dragging = true;
+    state.dragStartSelectedTarget = state.clips[index].targetMidi;
+    state.dragStartTargets = state.clips.map((clip) => clip.targetMidi);
     els.canvas.classList.add('dragging');
     els.canvas.setPointerCapture(event.pointerId);
     moveSelectedToY(point.y);
@@ -327,6 +378,8 @@
 
   function handlePointerUp(event) {
     state.dragging = false;
+    state.dragStartSelectedTarget = null;
+    state.dragStartTargets = [];
     els.canvas.classList.remove('dragging');
     try { els.canvas.releasePointerCapture(event.pointerId); } catch {}
   }
@@ -334,8 +387,37 @@
   function moveSelectedToY(y) {
     const clip = state.clips[state.selectedIndex];
     if (!clip) return;
-    clip.targetMidi = clamp(Math.round(midiFromY(y)), state.minMidi, state.maxMidi);
-    els.info.textContent = `Selected block ${clip.id}: ${clipLabel(clip)}. Drag up/down, then tap Apply Piano Roll.`;
+
+    const wantedTarget = clamp(Math.round(midiFromY(y)), state.minMidi, state.maxMidi);
+
+    if (state.groupMove && state.dragStartTargets.length === state.clips.length) {
+      const rawDelta = wantedTarget - state.dragStartSelectedTarget;
+      const boundedDelta = clampGroupDelta(rawDelta, state.dragStartTargets);
+      for (let i = 0; i < state.clips.length; i++) {
+        state.clips[i].targetMidi = state.dragStartTargets[i] + boundedDelta;
+      }
+      els.info.textContent = `Moving all blocks together: ${boundedDelta > 0 ? '+' : ''}${boundedDelta} semitones. Melody shape stays relative.`;
+    } else {
+      clip.targetMidi = wantedTarget;
+      els.info.textContent = `Selected block ${clip.id}: ${clipLabel(clip)}. Drag up/down, then tap Apply Piano Roll.`;
+    }
+  }
+
+  function clampGroupDelta(delta, targets) {
+    if (!targets.length) return 0;
+    const lowest = Math.min(...targets);
+    const highest = Math.max(...targets);
+    const minDelta = state.minMidi - lowest;
+    const maxDelta = state.maxMidi - highest;
+    return clamp(delta, minDelta, maxDelta);
+  }
+
+  function fitMidiRangeAroundTargets() {
+    const targets = state.clips.map((clip) => clip.targetMidi);
+    if (!targets.length) return;
+    const minTarget = Math.min(...targets);
+    const maxTarget = Math.max(...targets);
+    if (minTarget < state.minMidi + 2 || maxTarget > state.maxMidi - 2) fitMidiRange();
   }
 
   function findClipAt(x, y) {
@@ -426,7 +508,7 @@
     }
 
     for (let i = 0; i < state.clips.length; i++) {
-      drawClip(state.clips[i], i === state.selectedIndex);
+      drawClip(state.clips[i], i === state.selectedIndex || state.groupMove);
     }
 
     if (!state.clips.length) {
@@ -440,7 +522,7 @@
   function drawClip(clip, selected) {
     const box = clipBox(clip);
     ctx.fillStyle = selected ? 'rgba(255,223,112,0.94)' : 'rgba(255,223,112,0.68)';
-    ctx.strokeStyle = selected ? 'rgba(131,242,166,0.95)' : 'rgba(255,255,255,0.26)';
+    ctx.strokeStyle = state.groupMove ? 'rgba(131,242,166,0.95)' : selected ? 'rgba(131,242,166,0.95)' : 'rgba(255,255,255,0.26)';
     ctx.lineWidth = selected ? 4 : 2;
     roundRect(ctx, box.x, box.y, Math.max(8, box.w), box.h, 8);
     ctx.fill();
