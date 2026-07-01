@@ -21,10 +21,36 @@ const ui = {
   lowCutValue: $('lowCutValue'),
   rangeText: $('rangeText'),
   levelMeter: $('levelMeter'),
+  vocalFile: $('vocalFile'),
+  fileLabel: $('fileLabel'),
+  useLastTakeBtn: $('useLastTakeBtn'),
+  retuneSourceInfo: $('retuneSourceInfo'),
+  originalAudio: $('originalAudio'),
+  rootNote: $('rootNote'),
+  scaleName: $('scaleName'),
+  correctionAmount: $('correctionAmount'),
+  correctionValue: $('correctionValue'),
+  snapSpeed: $('snapSpeed'),
+  snapValue: $('snapValue'),
+  maxShift: $('maxShift'),
+  maxShiftValue: $('maxShiftValue'),
+  retuneGate: $('retuneGate'),
+  retuneGateValue: $('retuneGateValue'),
+  retuneBtn: $('retuneBtn'),
+  downloadRetunedBtn: $('downloadRetunedBtn'),
+  retuneCanvas: $('retuneCanvas'),
+  retuneMessage: $('retuneMessage'),
+  retunedAudio: $('retunedAudio'),
 };
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const BUFFER_SIZE = 8192;
+const SCALE_INTERVALS = {
+  chromatic: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  major: [0, 2, 4, 5, 7, 9, 11],
+  minor: [0, 2, 3, 5, 7, 8, 10],
+  harmonicMinor: [0, 2, 3, 5, 7, 8, 11],
+};
 
 let audioContext = null;
 let stream = null;
@@ -38,12 +64,17 @@ let lastGoodPitchAt = 0;
 let isRecording = false;
 let recordedChunks = [];
 let recordedSampleRate = 48000;
+let lastRecordingSamples = null;
 let lastWavUrl = null;
 let calibration = null;
 let voiceProfile = loadProfile();
+let retuneInput = null;
+let retunedUrl = null;
+let originalUrl = null;
 
 const tunerCtx = ui.tunerCanvas.getContext('2d');
 const waveCtx = ui.waveCanvas.getContext('2d');
+const retuneCtx = ui.retuneCanvas.getContext('2d');
 
 function setStatus(text, className = '') {
   ui.micStatus.textContent = text;
@@ -56,19 +87,50 @@ function updateSliderLabels() {
   ui.lowCutValue.textContent = `${ui.lowCut.value} Hz`;
 }
 
+function updateRetuneLabels() {
+  ui.correctionValue.textContent = `${Math.round(Number(ui.correctionAmount.value) * 100)}%`;
+  ui.snapValue.textContent = `${Math.round(Number(ui.snapSpeed.value) * 100)}%`;
+  ui.maxShiftValue.textContent = `${ui.maxShift.value}¢`;
+  ui.retuneGateValue.textContent = `${Math.round(Number(ui.retuneGate.value) * 100)}%`;
+}
+
+document.querySelectorAll('.tab-btn').forEach((button) => {
+  button.addEventListener('click', () => switchTab(button.dataset.tab));
+});
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach((button) => {
+    button.classList.toggle('active', button.dataset.tab === tab);
+  });
+  document.querySelectorAll('.tab-panel').forEach((panel) => {
+    panel.classList.toggle('active', panel.id === `${tab}Panel`);
+  });
+}
+
 ui.smoothing.addEventListener('input', updateSliderLabels);
 ui.clarity.addEventListener('input', updateSliderLabels);
 ui.lowCut.addEventListener('input', updateSliderLabels);
+ui.correctionAmount.addEventListener('input', updateRetuneLabels);
+ui.snapSpeed.addEventListener('input', updateRetuneLabels);
+ui.maxShift.addEventListener('input', updateRetuneLabels);
+ui.retuneGate.addEventListener('input', updateRetuneLabels);
+
 updateSliderLabels();
+updateRetuneLabels();
 renderProfile();
 drawTuner(null, 0);
 drawWaveform(new Float32Array(BUFFER_SIZE));
+drawRetuneMap([]);
 
 ui.startBtn.addEventListener('click', startMic);
 ui.stopBtn.addEventListener('click', stopMic);
 ui.calibrateBtn.addEventListener('click', startCalibration);
 ui.recordBtn.addEventListener('click', toggleRecording);
 ui.downloadBtn.addEventListener('click', downloadLastTake);
+ui.vocalFile.addEventListener('change', handleVocalFile);
+ui.useLastTakeBtn.addEventListener('click', useLastRecordedTake);
+ui.retuneBtn.addEventListener('click', retuneVocal);
+ui.downloadRetunedBtn.addEventListener('click', downloadRetunedTake);
 
 async function startMic() {
   if (audioContext) return;
@@ -283,6 +345,14 @@ function noteFromFrequency(frequency) {
   return { midi, name, frequency: noteFrequency };
 }
 
+function midiFromFrequency(frequency) {
+  return 69 + 12 * Math.log2(frequency / 440);
+}
+
+function frequencyFromMidi(midi) {
+  return 440 * Math.pow(2, (midi - 69) / 12);
+}
+
 function centsOff(frequency, noteFrequency) {
   return 1200 * Math.log2(frequency / noteFrequency);
 }
@@ -488,10 +558,12 @@ function makeLastTakeDownloadable() {
   }
 
   const samples = flattenChunks(recordedChunks);
+  lastRecordingSamples = samples;
   const wavBlob = encodeWav(samples, recordedSampleRate);
   if (lastWavUrl) URL.revokeObjectURL(lastWavUrl);
   lastWavUrl = URL.createObjectURL(wavBlob);
   ui.downloadBtn.disabled = false;
+  ui.useLastTakeBtn.disabled = false;
   const seconds = samples.length / recordedSampleRate;
   ui.pitchMessage.textContent = `WAV ready: ${seconds.toFixed(1)} seconds at ${recordedSampleRate} Hz.`;
 }
@@ -505,6 +577,339 @@ function downloadLastTake() {
   document.body.appendChild(link);
   link.click();
   link.remove();
+}
+
+async function handleVocalFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  ui.fileLabel.textContent = file.name;
+  ui.retuneMessage.textContent = 'Decoding audio file...';
+  ui.retuneBtn.disabled = true;
+  ui.downloadRetunedBtn.disabled = true;
+  setStatus('loading audio', 'working');
+
+  try {
+    const decoded = await decodeAudioFile(file);
+    setRetuneInput(decoded.samples, decoded.sampleRate, file.name, file);
+    ui.retuneMessage.textContent = 'Loaded. Choose your key and tap Retune Vocal.';
+    setStatus('audio loaded', 'live');
+  } catch (error) {
+    console.error(error);
+    ui.retuneMessage.textContent = 'Could not decode that file. Try a WAV, M4A, MP3, or another browser-readable audio file.';
+    setStatus('decode failed');
+  }
+}
+
+async function decodeAudioFile(file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  const temporaryContext = audioContext || new AudioContextClass();
+  const decoded = await temporaryContext.decodeAudioData(arrayBuffer.slice(0));
+  const samples = downmixToMono(decoded);
+  const sampleRate = decoded.sampleRate;
+  if (!audioContext) await temporaryContext.close();
+  return { samples, sampleRate };
+}
+
+function downmixToMono(audioBuffer) {
+  const length = audioBuffer.length;
+  const channels = audioBuffer.numberOfChannels;
+  const mono = new Float32Array(length);
+
+  for (let channel = 0; channel < channels; channel++) {
+    const data = audioBuffer.getChannelData(channel);
+    for (let i = 0; i < length; i++) mono[i] += data[i] / channels;
+  }
+
+  return mono;
+}
+
+function setRetuneInput(samples, sampleRate, name, sourceFile = null) {
+  retuneInput = {
+    samples,
+    sampleRate,
+    name,
+  };
+
+  if (originalUrl) URL.revokeObjectURL(originalUrl);
+  originalUrl = sourceFile ? URL.createObjectURL(sourceFile) : URL.createObjectURL(encodeWav(samples, sampleRate));
+  ui.originalAudio.src = originalUrl;
+  ui.retuneBtn.disabled = false;
+  ui.downloadRetunedBtn.disabled = true;
+  ui.retunedAudio.removeAttribute('src');
+  ui.retunedAudio.load();
+  drawRetuneMap([]);
+
+  const seconds = samples.length / sampleRate;
+  ui.retuneSourceInfo.textContent = `${name}: ${seconds.toFixed(1)} seconds, ${sampleRate} Hz, mono processing.`;
+}
+
+function useLastRecordedTake() {
+  if (!lastRecordingSamples) return;
+  setRetuneInput(lastRecordingSamples, recordedSampleRate, 'Last recorded take');
+  switchTab('retune');
+  ui.fileLabel.textContent = 'Using last recorded take';
+  ui.retuneMessage.textContent = 'Last take loaded. Choose your key and tap Retune Vocal.';
+}
+
+async function retuneVocal() {
+  if (!retuneInput) return;
+
+  ui.retuneBtn.disabled = true;
+  ui.downloadRetunedBtn.disabled = true;
+  setStatus('retuning', 'working');
+  ui.retuneMessage.textContent = 'Retuning... keep this tab open.';
+
+  const params = {
+    root: Number(ui.rootNote.value),
+    scale: ui.scaleName.value,
+    amount: Number(ui.correctionAmount.value),
+    snap: Number(ui.snapSpeed.value),
+    maxCents: Number(ui.maxShift.value),
+    gate: Number(ui.retuneGate.value),
+  };
+
+  try {
+    const result = await retuneSamples(retuneInput.samples, retuneInput.sampleRate, params, (progress, map) => {
+      ui.retuneMessage.textContent = `Retuning... ${progress}%`;
+      if (map.length) drawRetuneMap(map);
+    });
+
+    const blob = encodeWav(result.samples, retuneInput.sampleRate);
+    if (retunedUrl) URL.revokeObjectURL(retunedUrl);
+    retunedUrl = URL.createObjectURL(blob);
+    ui.retunedAudio.src = retunedUrl;
+    ui.downloadRetunedBtn.disabled = false;
+    drawRetuneMap(result.map);
+    const voiced = result.map.filter((point) => point.used).length;
+    const total = Math.max(1, result.map.length);
+    ui.retuneMessage.textContent = `Retuned. Voiced frames corrected: ${Math.round((voiced / total) * 100)}%. Preview it below, then download the WAV.`;
+    setStatus('retune ready', 'live');
+  } catch (error) {
+    console.error(error);
+    ui.retuneMessage.textContent = 'Retune failed. Try a shorter dry vocal WAV first.';
+    setStatus('retune failed');
+  } finally {
+    ui.retuneBtn.disabled = false;
+  }
+}
+
+async function retuneSamples(input, sampleRate, params, progressFn) {
+  const frameSize = 2048;
+  const detectionSize = 4096;
+  const hop = 512;
+  const output = new Float32Array(input.length);
+  const weights = new Float32Array(input.length);
+  const window = hannWindow(frameSize);
+  const detectionWindow = new Float32Array(detectionSize);
+  const map = [];
+  let shiftSemis = 0;
+  const maxSemis = params.maxCents / 100;
+  const response = 0.05 + params.snap * 0.72;
+  const totalFrames = Math.max(1, Math.ceil(input.length / hop));
+
+  for (let frameIndex = 0, center = 0; center < input.length; frameIndex++, center += hop) {
+    fillCenteredWindow(input, detectionWindow, center);
+    const detection = detectPitchYin(detectionWindow, sampleRate, 60, 950);
+    let used = false;
+    let sourceMidi = null;
+    let targetMidi = null;
+    let centsShift = 0;
+
+    if (detection && detection.clarity >= params.gate) {
+      sourceMidi = midiFromFrequency(detection.frequency);
+      targetMidi = nearestMidiInScale(sourceMidi, params.root, params.scale);
+      const desiredShift = clamp((targetMidi - sourceMidi) * params.amount, -maxSemis, maxSemis);
+      shiftSemis += (desiredShift - shiftSemis) * response;
+      centsShift = shiftSemis * 100;
+      used = true;
+    } else {
+      shiftSemis *= 0.84;
+      centsShift = shiftSemis * 100;
+    }
+
+    const ratio = Math.pow(2, shiftSemis / 12);
+    overlapPitchFrame(input, output, weights, center, frameSize, ratio, window);
+
+    map.push({
+      time: center / sampleRate,
+      used,
+      sourceMidi,
+      targetMidi,
+      centsShift,
+    });
+
+    if (frameIndex % 18 === 0) {
+      const progress = Math.min(99, Math.round((frameIndex / totalFrames) * 100));
+      progressFn(progress, map);
+      await waitForPaint();
+    }
+  }
+
+  for (let i = 0; i < output.length; i++) {
+    if (weights[i] > 0.000001) output[i] /= weights[i];
+    else output[i] = input[i] || 0;
+  }
+
+  softLimit(output);
+  progressFn(100, map);
+  return { samples: output, map };
+}
+
+function fillCenteredWindow(input, windowBuffer, center) {
+  const half = Math.floor(windowBuffer.length / 2);
+  for (let i = 0; i < windowBuffer.length; i++) {
+    windowBuffer[i] = input[center + i - half] || 0;
+  }
+}
+
+function overlapPitchFrame(input, output, weights, center, frameSize, ratio, window) {
+  const half = Math.floor(frameSize / 2);
+  const start = center - half;
+
+  for (let i = 0; i < frameSize; i++) {
+    const outIndex = start + i;
+    if (outIndex < 0 || outIndex >= output.length) continue;
+
+    const offset = i - half;
+    const sourceIndex = center + offset * ratio;
+    const sample = sampleLinear(input, sourceIndex);
+    const weight = window[i];
+    output[outIndex] += sample * weight;
+    weights[outIndex] += weight;
+  }
+}
+
+function sampleLinear(buffer, position) {
+  if (position <= 0) return buffer[0] || 0;
+  if (position >= buffer.length - 1) return buffer[buffer.length - 1] || 0;
+  const index = Math.floor(position);
+  const fraction = position - index;
+  return buffer[index] * (1 - fraction) + buffer[index + 1] * fraction;
+}
+
+function hannWindow(length) {
+  const window = new Float32Array(length);
+  for (let i = 0; i < length; i++) {
+    window[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (length - 1));
+  }
+  return window;
+}
+
+function nearestMidiInScale(midi, root, scaleName) {
+  if (scaleName === 'chromatic') return Math.round(midi);
+
+  const intervals = SCALE_INTERVALS[scaleName] || SCALE_INTERVALS.major;
+  const baseOctave = Math.floor((midi - root) / 12);
+  let best = midi;
+  let bestDistance = Infinity;
+
+  for (let octave = baseOctave - 2; octave <= baseOctave + 2; octave++) {
+    for (const interval of intervals) {
+      const candidate = root + interval + octave * 12;
+      const distance = Math.abs(candidate - midi);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = candidate;
+      }
+    }
+  }
+
+  return best;
+}
+
+function drawRetuneMap(map) {
+  const canvas = ui.retuneCanvas;
+  const ctx = retuneCtx;
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = 'rgba(255,255,255,0.035)';
+  ctx.fillRect(0, 0, w, h);
+
+  const center = h / 2;
+  ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+  ctx.lineWidth = 1;
+  for (let y = 0.2; y <= 0.8; y += 0.2) {
+    ctx.beginPath();
+    ctx.moveTo(0, h * y);
+    ctx.lineTo(w, h * y);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = 'rgba(131,242,166,0.72)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(0, center);
+  ctx.lineTo(w, center);
+  ctx.stroke();
+
+  if (!map || map.length === 0) {
+    ctx.fillStyle = 'rgba(246,244,238,0.66)';
+    ctx.font = '700 22px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('Retune movement will appear here', w / 2, center + 7);
+    return;
+  }
+
+  const maxCents = Math.max(50, Number(ui.maxShift.value) || 250);
+  ctx.strokeStyle = 'rgba(255,223,112,0.92)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+
+  for (let i = 0; i < map.length; i++) {
+    const x = (i / Math.max(1, map.length - 1)) * w;
+    const cents = clamp(map[i].centsShift || 0, -maxCents, maxCents);
+    const y = center - (cents / maxCents) * (h * 0.42);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  ctx.fillStyle = 'rgba(131,242,166,0.7)';
+  const skip = Math.max(1, Math.floor(map.length / 90));
+  for (let i = 0; i < map.length; i += skip) {
+    if (!map[i].used) continue;
+    const x = (i / Math.max(1, map.length - 1)) * w;
+    const cents = clamp(map[i].centsShift || 0, -maxCents, maxCents);
+    const y = center - (cents / maxCents) * (h * 0.42);
+    ctx.beginPath();
+    ctx.arc(x, y, 2.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = 'rgba(246,244,238,0.72)';
+  ctx.font = '700 16px system-ui';
+  ctx.textAlign = 'left';
+  ctx.fillText(`+${maxCents}¢`, 12, 24);
+  ctx.fillText(`-${maxCents}¢`, 12, h - 14);
+}
+
+function downloadRetunedTake() {
+  if (!retunedUrl || !retuneInput) return;
+  const link = document.createElement('a');
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const safeName = retuneInput.name.replace(/\.[^/.]+$/, '').replace(/[^a-z0-9-_]+/gi, '-').slice(0, 42) || 'vocal';
+  link.href = retunedUrl;
+  link.download = `${safeName}-retuned-${stamp}.wav`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+function waitForPaint() {
+  return new Promise((resolve) => requestAnimationFrame(resolve));
+}
+
+function softLimit(buffer) {
+  let peak = 0;
+  for (let i = 0; i < buffer.length; i++) peak = Math.max(peak, Math.abs(buffer[i]));
+  const gain = peak > 0.98 ? 0.98 / peak : 1;
+  for (let i = 0; i < buffer.length; i++) {
+    const x = buffer[i] * gain;
+    buffer[i] = Math.tanh(x * 1.15) / Math.tanh(1.15);
+  }
 }
 
 function flattenChunks(chunks) {
@@ -549,4 +954,8 @@ function encodeWav(samples, sampleRate) {
 
 function writeString(view, offset, string) {
   for (let i = 0; i < string.length; i++) view.setUint8(offset + i, string.charCodeAt(i));
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }
