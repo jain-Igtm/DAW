@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#11131c">
-  <title>DAW Voice Pitch Monitor</title>
+  <title>DAW Vocal Lab</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -12,74 +12,181 @@
     <section class="hero panel">
       <div>
         <p class="eyebrow">DAW vocal tool</p>
-        <h1>Voice Pitch Monitor</h1>
-        <p class="lede">Real-time singing pitch, note/cents display, voice-range calibration, and WAV recording straight from the browser.</p>
+        <h1>DAW Vocal Lab</h1>
+        <p class="lede">Real-time pitch monitoring, voice-range calibration, WAV recording, and a simple browser retune tool for solo vocal takes.</p>
       </div>
       <div class="status-pill" id="micStatus">mic idle</div>
     </section>
 
-    <section class="readout panel">
-      <div class="note-stack">
-        <div class="note" id="noteName">--</div>
-        <div class="hz" id="frequency">0.0 Hz</div>
-        <div class="message" id="pitchMessage">Tap Start Mic and sing a steady note.</div>
-      </div>
+    <nav class="tab-strip panel" aria-label="DAW tool tabs">
+      <button class="tab-btn active" data-tab="monitor" type="button">Pitch Monitor</button>
+      <button class="tab-btn" data-tab="retune" type="button">Retune Vocals</button>
+    </nav>
 
-      <div class="tuner" aria-label="Pitch tuner">
-        <canvas id="tunerCanvas" width="720" height="260"></canvas>
-        <div class="cents" id="centsReadout">0 cents</div>
-      </div>
-    </section>
-
-    <section class="controls panel">
-      <button id="startBtn" class="primary">Start Mic</button>
-      <button id="stopBtn" disabled>Stop</button>
-      <button id="calibrateBtn" disabled>Calibrate Voice</button>
-      <button id="recordBtn" disabled>Record WAV</button>
-      <button id="downloadBtn" disabled>Download Last Take</button>
-    </section>
-
-    <section class="panel grid-two">
-      <div>
-        <h2>Input</h2>
-        <label class="slider-row">
-          <span>Pitch smoothing</span>
-          <input id="smoothing" type="range" min="0" max="0.95" value="0.72" step="0.01">
-          <strong id="smoothingValue">72%</strong>
-        </label>
-        <label class="slider-row">
-          <span>Minimum clarity</span>
-          <input id="clarity" type="range" min="0.45" max="0.95" value="0.72" step="0.01">
-          <strong id="clarityValue">72%</strong>
-        </label>
-        <label class="slider-row">
-          <span>Voice low cut</span>
-          <input id="lowCut" type="range" min="50" max="180" value="70" step="1">
-          <strong id="lowCutValue">70 Hz</strong>
-        </label>
-      </div>
-
-      <div>
-        <h2>Voice profile</h2>
-        <p id="rangeText" class="soft">No profile yet. Tap Calibrate Voice and sing your lowest comfortable note, then your highest comfortable note.</p>
-        <div class="mini-meter">
-          <span>signal</span>
-          <div class="meter-track"><div id="levelMeter" class="meter-fill"></div></div>
+    <div id="monitorPanel" class="tab-panel active">
+      <section class="readout panel">
+        <div class="note-stack">
+          <div class="note" id="noteName">--</div>
+          <div class="hz" id="frequency">0.0 Hz</div>
+          <div class="message" id="pitchMessage">Tap Start Mic and sing a steady note.</div>
         </div>
-        <p class="soft small">Best results: use wired earbuds or keep the phone speaker quiet so the mic hears only your voice.</p>
-      </div>
-    </section>
 
-    <section class="panel">
-      <h2>Waveform</h2>
-      <canvas id="waveCanvas" width="720" height="180"></canvas>
-    </section>
+        <div class="tuner" aria-label="Pitch tuner">
+          <canvas id="tunerCanvas" width="720" height="260"></canvas>
+          <div class="cents" id="centsReadout">0 cents</div>
+        </div>
+      </section>
 
-    <section class="panel notes-panel">
-      <h2>How to use it</h2>
-      <p>Start the mic, sing a clean sustained note, and watch the needle. Center means in tune. Left is flat, right is sharp. Record WAV captures uncompressed PCM from the microphone so you can download a take and move it into BandLab or another editor.</p>
-      <p class="soft small">This uses browser microphone access, so it needs HTTPS. GitHub Pages gives that automatically once Pages is enabled for this repo.</p>
-    </section>
+      <section class="controls panel">
+        <button id="startBtn" class="primary" type="button">Start Mic</button>
+        <button id="stopBtn" type="button" disabled>Stop</button>
+        <button id="calibrateBtn" type="button" disabled>Calibrate Voice</button>
+        <button id="recordBtn" type="button" disabled>Record WAV</button>
+        <button id="downloadBtn" type="button" disabled>Download Last Take</button>
+      </section>
+
+      <section class="panel grid-two">
+        <div>
+          <h2>Input</h2>
+          <label class="slider-row">
+            <span>Pitch smoothing</span>
+            <input id="smoothing" type="range" min="0" max="0.95" value="0.72" step="0.01">
+            <strong id="smoothingValue">72%</strong>
+          </label>
+          <label class="slider-row">
+            <span>Minimum clarity</span>
+            <input id="clarity" type="range" min="0.45" max="0.95" value="0.72" step="0.01">
+            <strong id="clarityValue">72%</strong>
+          </label>
+          <label class="slider-row">
+            <span>Voice low cut</span>
+            <input id="lowCut" type="range" min="50" max="180" value="70" step="1">
+            <strong id="lowCutValue">70 Hz</strong>
+          </label>
+        </div>
+
+        <div>
+          <h2>Voice profile</h2>
+          <p id="rangeText" class="soft">No profile yet. Tap Calibrate Voice and sing your lowest comfortable note, then your highest comfortable note.</p>
+          <div class="mini-meter">
+            <span>signal</span>
+            <div class="meter-track"><div id="levelMeter" class="meter-fill"></div></div>
+          </div>
+          <p class="soft small">Best results: use wired earbuds or keep the phone speaker quiet so the mic hears only your voice.</p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Waveform</h2>
+        <canvas id="waveCanvas" width="720" height="180"></canvas>
+      </section>
+
+      <section class="panel notes-panel">
+        <h2>How to use it</h2>
+        <p>Start the mic, sing a clean sustained note, and watch the needle. Center means in tune. Left is flat, right is sharp. Record WAV captures uncompressed PCM from the microphone so you can download a take and move it into BandLab or another editor.</p>
+        <p class="soft small">This uses browser microphone access, so it needs HTTPS. GitHub Pages gives that automatically once Pages is enabled for this repo.</p>
+      </section>
+    </div>
+
+    <div id="retunePanel" class="tab-panel">
+      <section class="panel retune-header">
+        <div>
+          <p class="eyebrow">offline vocal correction</p>
+          <h2>Retune a solo vocal WAV</h2>
+          <p class="lede">Upload a dry vocal, choose the key, set how hard it should snap, then preview and download a corrected WAV. This works best on one voice at a time, not vocals mixed with a beat.</p>
+        </div>
+      </section>
+
+      <section class="panel grid-two retune-grid">
+        <div>
+          <h2>Source</h2>
+          <label class="file-picker">
+            <span id="fileLabel">Choose vocal file</span>
+            <input id="vocalFile" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg">
+          </label>
+          <button id="useLastTakeBtn" type="button" disabled>Use Last Recorded Take</button>
+          <p id="retuneSourceInfo" class="soft small">No vocal loaded yet.</p>
+
+          <div class="audio-stack">
+            <span class="audio-label">Original</span>
+            <audio id="originalAudio" controls></audio>
+          </div>
+        </div>
+
+        <div>
+          <h2>Target</h2>
+          <div class="select-row">
+            <label>
+              <span>Key</span>
+              <select id="rootNote">
+                <option value="0">C</option>
+                <option value="1">C# / Db</option>
+                <option value="2">D</option>
+                <option value="3">D# / Eb</option>
+                <option value="4">E</option>
+                <option value="5">F</option>
+                <option value="6">F# / Gb</option>
+                <option value="7" selected>G</option>
+                <option value="8">G# / Ab</option>
+                <option value="9">A</option>
+                <option value="10">A# / Bb</option>
+                <option value="11">B</option>
+              </select>
+            </label>
+            <label>
+              <span>Scale</span>
+              <select id="scaleName">
+                <option value="major" selected>Major</option>
+                <option value="minor">Natural minor</option>
+                <option value="harmonicMinor">Harmonic minor</option>
+                <option value="chromatic">Chromatic</option>
+              </select>
+            </label>
+          </div>
+
+          <label class="slider-row">
+            <span>Correction amount</span>
+            <input id="correctionAmount" type="range" min="0" max="1" value="0.82" step="0.01">
+            <strong id="correctionValue">82%</strong>
+          </label>
+          <label class="slider-row">
+            <span>Snap speed</span>
+            <input id="snapSpeed" type="range" min="0" max="1" value="0.66" step="0.01">
+            <strong id="snapValue">66%</strong>
+          </label>
+          <label class="slider-row">
+            <span>Max shift</span>
+            <input id="maxShift" type="range" min="25" max="600" value="250" step="5">
+            <strong id="maxShiftValue">250¢</strong>
+          </label>
+          <label class="slider-row">
+            <span>Detection gate</span>
+            <input id="retuneGate" type="range" min="0.45" max="0.95" value="0.66" step="0.01">
+            <strong id="retuneGateValue">66%</strong>
+          </label>
+        </div>
+      </section>
+
+      <section class="controls panel retune-actions">
+        <button id="retuneBtn" class="primary" type="button" disabled>Retune Vocal</button>
+        <button id="downloadRetunedBtn" type="button" disabled>Download Retuned WAV</button>
+      </section>
+
+      <section class="panel">
+        <h2>Retune map</h2>
+        <canvas id="retuneCanvas" width="720" height="220"></canvas>
+        <p id="retuneMessage" class="message">Load a vocal to begin.</p>
+      </section>
+
+      <section class="panel">
+        <h2>Result</h2>
+        <div class="audio-stack">
+          <span class="audio-label">Retuned</span>
+          <audio id="retunedAudio" controls></audio>
+        </div>
+        <p class="soft small">This is a lightweight pitch-correction engine. For cleanest results, feed it a dry mono vocal and keep correction under about 80–90% unless you want the obvious hard-tune sound.</p>
+      </section>
+    </div>
   </main>
 
   <script src="app.js"></script>
