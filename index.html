@@ -175,11 +175,16 @@
 
       <section class="panel piano-panel">
         <h2>Piano Roll Retune</h2>
-        <p class="soft">Analyze the vocal into draggable note blocks. Drag a block up or down to place that snippet on a note, then apply the piano roll to create a new WAV.</p>
+        <p class="soft">Analyze the vocal into draggable note blocks. Drag a block up or down to place that snippet on a note, or turn on Move All Together to transpose the whole phrase while keeping the melody shape intact.</p>
         <div class="piano-actions">
           <button id="analyzePianoBtn" class="primary" type="button" disabled>Analyze Piano Roll</button>
           <button id="applyPianoBtn" type="button" disabled>Apply Piano Roll</button>
           <button id="clearPianoBtn" type="button" disabled>Clear Blocks</button>
+        </div>
+        <div class="piano-global-controls">
+          <button id="transposeAllDownBtn" type="button" disabled>All −1</button>
+          <button id="transposeAllUpBtn" type="button" disabled>All +1</button>
+          <button id="groupMoveToggle" class="toggle-btn" type="button" disabled aria-pressed="false">Move All Together: Off</button>
         </div>
         <canvas id="pianoCanvas" width="900" height="420" aria-label="Piano roll vocal editor"></canvas>
         <p id="selectedClipInfo" class="soft small">Load a vocal, then tap Analyze Piano Roll.</p>
