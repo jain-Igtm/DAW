@@ -2,11 +2,26 @@
   overflow: hidden;
 }
 
-.piano-actions {
+.piano-actions,
+.piano-global-controls {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin: 18px 0 16px;
+}
+
+.piano-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.piano-global-controls {
+  grid-template-columns: 0.7fr 0.7fr 1.6fr;
+  margin-top: 0;
+}
+
+.toggle-btn[aria-pressed="true"] {
+  background: var(--hot);
+  color: #171102;
+  border-color: transparent;
 }
 
 #pianoCanvas {
@@ -19,8 +34,13 @@
   cursor: grabbing;
 }
 
+#pianoCanvas.group-moving {
+  box-shadow: 0 0 0 2px rgba(255, 223, 112, 0.35), 0 24px 80px rgba(0, 0, 0, 0.22);
+}
+
 @media (max-width: 640px) {
-  .piano-actions {
+  .piano-actions,
+  .piano-global-controls {
     grid-template-columns: 1fr;
   }
 
