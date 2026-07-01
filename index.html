@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#11131c">
   <title>DAW Vocal Lab</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="piano-roll.css">
 </head>
 <body>
   <main class="app-shell">
@@ -172,6 +173,18 @@
         <button id="downloadRetunedBtn" type="button" disabled>Download Retuned WAV</button>
       </section>
 
+      <section class="panel piano-panel">
+        <h2>Piano Roll Retune</h2>
+        <p class="soft">Analyze the vocal into draggable note blocks. Drag a block up or down to place that snippet on a note, then apply the piano roll to create a new WAV.</p>
+        <div class="piano-actions">
+          <button id="analyzePianoBtn" class="primary" type="button" disabled>Analyze Piano Roll</button>
+          <button id="applyPianoBtn" type="button" disabled>Apply Piano Roll</button>
+          <button id="clearPianoBtn" type="button" disabled>Clear Blocks</button>
+        </div>
+        <canvas id="pianoCanvas" width="900" height="420" aria-label="Piano roll vocal editor"></canvas>
+        <p id="selectedClipInfo" class="soft small">Load a vocal, then tap Analyze Piano Roll.</p>
+      </section>
+
       <section class="panel">
         <h2>Retune map</h2>
         <canvas id="retuneCanvas" width="720" height="220"></canvas>
@@ -190,5 +203,6 @@
   </main>
 
   <script src="app.js"></script>
+  <script src="piano-roll.js"></script>
 </body>
 </html>
